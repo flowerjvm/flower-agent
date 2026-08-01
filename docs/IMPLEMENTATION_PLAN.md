@@ -2,7 +2,7 @@
 
 ## Phase 0: boundary and executable skeleton
 
-Status: completed in the initial `0.1.0-SNAPSHOT` skeleton.
+Status: completed in the initial `0.1.0` implementation.
 
 - one `flower-agent-core` artifact;
 - Agent run, thread, turn, message, model, tool, transcript, budget, retry, and
@@ -23,7 +23,7 @@ budgets, interrupt, completion-policy failure, and pre-submission purity.
 
 ## Phase 1: local model adapter
 
-Status: completed in the initial `0.1.0-SNAPSHOT` implementation.
+Status: completed in the initial `0.1.0` implementation.
 
 - OpenAI-compatible chat and tool-call encoding;
 - cloud, proxy, vLLM, NIM, and Ollama-compatible endpoint configuration;

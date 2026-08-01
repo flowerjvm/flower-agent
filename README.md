@@ -99,6 +99,31 @@ The project currently contains two deployable modules:
 Official provider SDK, MCP, JDBC, Spring Boot, reusable tool, public testkit,
 and sample modules are deferred until a concrete integration requires them.
 
+## Install from Maven Central
+
+Flower Agent requires Java 21. Add the core and the model adapter needed by the
+host application:
+
+```kotlin
+dependencies {
+    implementation("io.github.flowerjvm:flower-agent-core:0.1.0")
+    implementation("io.github.flowerjvm:flower-agent-model-openai-compatible:0.1.0")
+}
+```
+
+```xml
+<dependency>
+    <groupId>io.github.flowerjvm</groupId>
+    <artifactId>flower-agent-core</artifactId>
+    <version>0.1.0</version>
+</dependency>
+<dependency>
+    <groupId>io.github.flowerjvm</groupId>
+    <artifactId>flower-agent-model-openai-compatible</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
 ## Bring your own tools
 
 The core is capability-less by default. It does not ship with business tools.
