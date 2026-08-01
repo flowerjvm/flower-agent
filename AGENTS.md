@@ -1,0 +1,30 @@
+# Repository Guide
+
+`flower-agent` is a Flower-native agent loop library, not another workflow
+engine.
+
+## Invariants
+
+- Keep `flower-agent-core` small.
+- Flower owns Flow and Step execution.
+- Worker ticks never block on model, tool, network, process, or human work.
+- `ContextBuilder` performs bounded in-memory selection only; it never performs
+  RAG, database, network, model, or tool I/O.
+- Every assistant-declared tool call has exactly one terminal tool-result
+  message before a run leaves the batch.
+- A model-facing tool is not automatically authorized to mutate business data.
+- Mutating tools must delegate to a governed boundary such as
+  `flower-action-runtime`.
+- Agent-turn retry, AI Harness task retry, and Action Runtime execution retry
+  are different policies and must not be merged.
+- Do not add provider, MCP, persistence, Spring, sample, or UI code to core.
+
+## Verification
+
+Run:
+
+```powershell
+mvn -B -ntp verify
+```
+
+Tests must use deterministic Flower ticks and must not sleep.
