@@ -52,6 +52,31 @@ The core contains interfaces for model, tool, transcript, and policy boundaries.
 It does not contain a provider SDK, MCP client, JDBC schema, Spring
 auto-configuration, or domain tools.
 
+## OpenAI-compatible model adapter
+
+`flower-agent-model-openai-compatible` is an optional adapter outside core. It
+maps an `AgentModelRequest` to a non-streaming OpenAI-compatible
+`/chat/completions` request and returns a pollable `AgentModelCall`.
+
+Unlike the similarly named AI Harness provider, this adapter preserves the
+complete Agent protocol:
+
+- system, user, assistant, and tool message roles;
+- model-facing function definitions and JSON schemas;
+- assistant `tool_calls` and matching tool-result messages;
+- multiple tool calls in one model response;
+- usage, finish reason, and provider trace metadata;
+- HTTP and transport failure details for retry policy decisions.
+
+Host-facing Tool names remain domain identifiers. Names such as
+`atcss.log.search` are deterministically encoded to provider-safe function
+aliases and decoded back before Registry lookup, because strict OpenAI
+function names do not permit dots.
+
+Before dispatch, it rejects a transcript with dangling, duplicate, unknown, or
+mismatched tool-call identities. It uses JDK asynchronous HTTP and never waits
+inside a Flower Worker tick.
+
 ## Tool versus action
 
 `ToolRegistry` is the surface shown to the model. It answers:
@@ -146,3 +171,48 @@ run lifecycle in Phase 2.
 
 The initial core implements only the local P-like loop and hard budgets. It
 does not pretend to be a centralized PID controller.
+
+### Future feedback extension
+
+P/I/D-like behavior describes feedback over different time horizons. It is an
+architectural analogy, not a promise to embed a numerical PID controller in the
+Agent runtime.
+
+| Feedback horizon | Example data | Where it is applied |
+| --- | --- | --- |
+| P-like, current run | latest tool result, current error, immediate state change | the next model turn through the transcript |
+| I-like, across runs | repeated incidents, action success rate, accumulated failure count | host-provided context, memory, or operator-controlled policy |
+| D-like, rate of change | rising error rate, shorter recurrence interval, tool-call spike | host safeguards, circuit breakers, or Action Runtime policy/interlocks |
+
+The core should make these extensions possible without owning their storage,
+aggregation, or domain policy. Stable extension points may include:
+
+- run, turn, model-call, and tool-call events for external observation;
+- bounded context contributions prepared outside the Worker tick and supplied
+  through `ContextBuilder`;
+- replaceable budget, completion, and retry policies;
+- host and Action Runtime checks that can restrict or redirect requested work.
+
+A future host or optional integration module may derive feedback from run
+history, metrics, action audit records, or domain telemetry. It can then return
+that feedback to a later run as model context or as deterministic policy input:
+
+```text
+Agent events and domain telemetry
+              |
+              v
+external history / metrics / trend analysis
+              |
+              +--> context contribution --> later AgentRun
+              |
+              +--> deterministic policy --> budget, circuit breaker, action gate
+```
+
+Raw long-term history should not be appended blindly to every prompt. The host
+must select, summarize, bound, and timestamp relevant feedback. Safety or
+authorization decisions must remain deterministic policy checks; model context
+may explain those decisions but must not replace them.
+
+No `flower-agent-feedback` module is planned merely for symmetry. Such a module
+should be introduced only after multiple real hosts demonstrate the same data,
+aggregation, and injection contract.

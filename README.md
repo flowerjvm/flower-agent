@@ -22,10 +22,9 @@ local vLLM / NIM / Ollama API -----+--> AgentModelGateway
                                     application AgentTools
 ```
 
-The repository is currently an early core implementation. It contains the
-agent contracts and a transient Flower Flow, but it does not yet contain an
-OpenAI-compatible provider adapter, durable persistence, or Spring Boot
-auto-configuration.
+The repository is currently an early implementation. It contains the agent
+contracts, a transient Flower Flow, and an OpenAI-compatible model adapter. It
+does not yet contain durable persistence or Spring Boot auto-configuration.
 
 ## What it is
 
@@ -90,14 +89,15 @@ directly. A refund or equipment-stop tool should adapt the model's ToolCall to
 an ActionProposal and delegate the actual governed change to
 `flower-action-runtime`.
 
-The initial project intentionally contains one deployable module:
+The project currently contains two deployable modules:
 
 | Artifact | Purpose |
 | --- | --- |
 | `flower-agent-core` | Agent contracts plus a transient Flower Flow implementation. |
+| `flower-agent-model-openai-compatible` | Async `/chat/completions` gateway with complete Agent message and tool-call mapping. |
 
-Provider, MCP, JDBC, Spring Boot, reusable tool, public testkit, and sample
-modules are deferred until a concrete integration requires them.
+Official provider SDK, MCP, JDBC, Spring Boot, reusable tool, public testkit,
+and sample modules are deferred until a concrete integration requires them.
 
 ## Bring your own tools
 
@@ -123,6 +123,12 @@ At the current core level, a host supplies a model gateway, a tool registry,
 and a transcript store, then creates a Flow for one user message:
 
 ```java
+AgentModelGateway modelGateway = new OpenAiCompatibleAgentModelGateway(
+        OpenAiCompatibleAgentGatewayConfig
+                .builder("http://localhost:8000/v1")
+                .build()
+);
+
 ToolRegistry tools = new InMemoryToolRegistry(List.of(
         searchAtcssLogTool,
         pauseEquipmentTool
@@ -153,9 +159,61 @@ The host can observe `run.run()` for status and counters, inspect
 `run.transcript()` for the conversation and tool protocol, or call
 `run.cancel(reason)`.
 
-The planned `flower-agent-model-openai-compatible` module will provide a common
-gateway for compatible cloud and local endpoints. Until that module exists, a
-host must implement `AgentModelGateway` and its pollable `AgentModelCall`.
+`flower-agent-model-openai-compatible` works with compatible cloud endpoints,
+proxies, and local servers such as vLLM, NIM, or Ollama's OpenAI-compatible
+API. Supply a base URL ending in `/v1` or the complete
+`/chat/completions` URL. API keys are optional, and custom headers are
+supported for internal gateways.
+
+```java
+OpenAiCompatibleAgentGatewayConfig config =
+        OpenAiCompatibleAgentGatewayConfig
+                .builder("http://localhost:11434/v1")
+                .apiKey(System.getenv("MODEL_API_KEY"))
+                .header("X-Tenant", "terminal-a")
+                .build();
+```
+
+The model name comes from `AgentSpec.modelId()`. Per-agent generation options
+such as temperature, token limits, tool choice, and provider-specific extra
+body fields can be supplied through the constants in
+`OpenAiCompatibleAgentOptions` and `AgentSpec.metadata()`.
+
+Domain tool names may use dotted identifiers such as `atcss.log.search` or
+`equipment.pause`. The gateway deterministically maps names that violate an
+endpoint's function-name restrictions to provider-safe aliases and maps model
+ToolCalls back to the original Registry names.
+
+An opt-in live smoke test can verify a real compatible endpoint without
+putting credentials in source control:
+
+```powershell
+$env:OPENAI_API_KEY = "..."
+$env:OPENAI_BASE_URL = "https://api.openai.com/v1" # optional
+$env:OPENAI_MODEL = "gpt-4.1-mini"                 # optional
+.\mvnw.cmd -B -ntp -pl flower-agent-model-openai-compatible -am `
+    verify -Plive-openai-compatible
+```
+
+The live profile forces one tool call and then sends its tool result for a
+final answer. It is not active during the normal deterministic build. Never
+commit API keys or place them in Maven properties.
+
+### Agent provider versus AI Harness provider
+
+`flower-ai-harness` also has an OpenAI-compatible provider, but the two modules
+serve different contracts and are not interchangeable:
+
+| Module | Unit of work | Protocol surface |
+| --- | --- | --- |
+| `flower-ai-harness-provider-openai-compatible` | One AI task attempt | Prompt messages in, final text out. |
+| `flower-agent-model-openai-compatible` | One turn inside an AgentRun | System/user/assistant/tool transcript, tool schemas, tool calls, usage, and finish reason. |
+
+Use the Harness provider for one-shot structured generation and validation.
+Use the Agent provider when the model must select application tools and receive
+their results over multiple turns. A host may still wrap the completed
+AgentRun in an outer AI Harness task when final structured validation or
+whole-task fallback is required.
 
 ## Boundary
 

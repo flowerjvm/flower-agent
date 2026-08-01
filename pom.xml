@@ -40,6 +40,7 @@
 
     <modules>
         <module>flower-agent-core</module>
+        <module>flower-agent-model-openai-compatible</module>
     </modules>
 
     <properties>
@@ -48,6 +49,7 @@
         <maven.compiler.release>21</maven.compiler.release>
 
         <flower.version>0.1.1</flower.version>
+        <jackson.version>2.17.2</jackson.version>
         <junit-jupiter.version>5.10.3</junit-jupiter.version>
         <assertj.version>3.26.3</assertj.version>
 
@@ -60,6 +62,11 @@
             <dependency>
                 <groupId>io.github.flowerjvm</groupId>
                 <artifactId>flower-agent-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.flowerjvm</groupId>
+                <artifactId>flower-agent-model-openai-compatible</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -83,6 +90,11 @@
                 <groupId>org.assertj</groupId>
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -125,4 +137,3 @@
         </plugins>
     </build>
 </project>
-

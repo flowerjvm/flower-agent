@@ -23,16 +23,20 @@ budgets, interrupt, completion-policy failure, and pre-submission purity.
 
 ## Phase 1: local model adapter
 
-Add `flower-agent-model-openai-compatible` only after the core loop stabilizes.
+Status: completed in the initial `0.1.0-SNAPSHOT` implementation.
 
 - OpenAI-compatible chat and tool-call encoding;
-- vLLM, NIM, and Ollama compatibility tests;
+- cloud, proxy, vLLM, NIM, and Ollama-compatible endpoint configuration;
 - cancellation and provider deadline behavior;
 - token and finish-reason mapping;
 - strict request validation that rejects dangling or duplicate tool results;
 - no model fallback policy in this module.
 
-Exit condition: the same core test scenario runs against a local test server.
+Exit condition: a deterministic full Agent Flow test proves
+`model ToolCall -> ToolResult -> next model turn -> final answer`, including
+the exact OpenAI-compatible request bodies. Focused tests cover generated call
+ids for permissive local providers, HTTP retryability, reserved body fields,
+strict transcript rejection, and cancellation.
 
 ## Phase 2: durable run and resume
 
