@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.flowerjvm</groupId>
         <artifactId>flower-agent-parent</artifactId>
-        <version>0.1.0</version>
+        <version>0.2.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -15,53 +15,5 @@
     <packaging>jar</packaging>
 
     <name>flower-agent Core</name>
-    <description>Agent run, turn, tool loop, transcript, budget, and completion policy on Flower.</description>
-
-    <dependencies>
-        <dependency>
-            <groupId>io.github.flowerjvm</groupId>
-            <artifactId>flower-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>io.github.flowerjvm</groupId>
-            <artifactId>flower-testkit</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.assertj</groupId>
-            <artifactId>assertj-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>io.github.flowerjvm</groupId>
-                <artifactId>flower-check-maven-plugin</artifactId>
-                <version>${flower.version}</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
+    <description>Provider-neutral Agent run, model, tool, transcript, budget, policy, and observation contracts.</description>
 </project>

@@ -6,7 +6,7 @@
 
     <groupId>io.github.flowerjvm</groupId>
     <artifactId>flower-agent-parent</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>flower-agent Parent</name>
@@ -45,6 +45,8 @@
 
     <modules>
         <module>flower-agent-core</module>
+        <module>flower-agent-recipes</module>
+        <module>flower-agent-observability</module>
         <module>flower-agent-model-openai-compatible</module>
     </modules>
 
@@ -66,7 +68,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.release>21</maven.compiler.release>
 
-        <flower.version>0.1.1</flower.version>
+        <flower.version>0.1.2-SNAPSHOT</flower.version>
         <jackson.version>2.17.2</jackson.version>
         <junit-jupiter.version>5.10.3</junit-jupiter.version>
         <assertj.version>3.26.3</assertj.version>
@@ -93,6 +95,16 @@
             </dependency>
             <dependency>
                 <groupId>io.github.flowerjvm</groupId>
+                <artifactId>flower-agent-recipes</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.flowerjvm</groupId>
+                <artifactId>flower-agent-observability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.flowerjvm</groupId>
                 <artifactId>flower-agent-model-openai-compatible</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -104,6 +116,11 @@
             <dependency>
                 <groupId>io.github.flowerjvm</groupId>
                 <artifactId>flower-testkit</artifactId>
+                <version>${flower.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.flowerjvm</groupId>
+                <artifactId>flower-observability</artifactId>
                 <version>${flower.version}</version>
             </dependency>
             <dependency>

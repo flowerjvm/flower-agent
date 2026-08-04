@@ -8,6 +8,9 @@ import io.github.flowerjvm.flower.agent.model.AgentModelResponse;
 import io.github.flowerjvm.flower.agent.model.AgentUsage;
 import io.github.flowerjvm.flower.agent.model.ToolCall;
 import io.github.flowerjvm.flower.agent.model.ToolResult;
+import io.github.flowerjvm.flower.agent.observation.AgentEvent;
+import io.github.flowerjvm.flower.agent.observation.AgentEventSink;
+import io.github.flowerjvm.flower.agent.observation.AgentEventType;
 import io.github.flowerjvm.flower.agent.run.AgentInterrupt;
 import io.github.flowerjvm.flower.agent.run.AgentRun;
 import io.github.flowerjvm.flower.agent.run.AgentRunStatus;
@@ -18,8 +21,10 @@ import io.github.flowerjvm.flower.agent.tool.AgentToolContext;
 import io.github.flowerjvm.flower.agent.tool.ToolRegistry;
 import io.github.flowerjvm.flower.agent.transcript.TranscriptStore;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,6 +42,8 @@ final class AgentRunSession {
     private final ToolRegistry toolRegistry;
     private final AgentMessage initialMessage;
     private final Instant startedAt;
+    private final String recipeId;
+    private final AgentEventSink eventSink;
     private final List<AgentTurn> turns = new ArrayList<>();
 
     private boolean transcriptInitialized;
@@ -51,6 +58,7 @@ final class AgentRunSession {
     private BudgetViolation budgetViolation;
     private String failureCode;
     private String failureMessage;
+    private long eventSequence;
 
     private AgentModelRequest currentRequest;
     private AgentModelResponse currentResponse;
@@ -63,7 +71,9 @@ final class AgentRunSession {
             TranscriptStore transcriptStore,
             ToolRegistry toolRegistry,
             AgentMessage initialMessage,
-            Instant startedAt
+            Instant startedAt,
+            String recipeId,
+            AgentEventSink eventSink
     ) {
         this.spec = spec;
         this.thread = thread;
@@ -72,6 +82,8 @@ final class AgentRunSession {
         this.initialMessage = initialMessage;
         this.startedAt = startedAt;
         this.updatedAt = startedAt;
+        this.recipeId = recipeId;
+        this.eventSink = eventSink == null ? AgentEventSink.noop() : eventSink;
     }
 
     synchronized AgentRun snapshot() {
@@ -94,11 +106,13 @@ final class AgentRunSession {
                 failureMessage);
     }
 
-    synchronized AgentMessage takeInitialMessage() {
+    synchronized AgentMessage takeInitialMessage(Instant now) {
         if (transcriptInitialized) {
             return null;
         }
         transcriptInitialized = true;
+        touch(now);
+        emit(AgentEventType.RUN_STARTED, now, 0, null, null, Map.of());
         return initialMessage;
     }
 
@@ -131,6 +145,8 @@ final class AgentRunSession {
         currentRequest = null;
         currentResponse = null;
         touch(now);
+        emit(AgentEventType.TURN_STARTED, now, turnNumber, null, spec.modelId(), Map.of(
+                "attempt", 1));
         return true;
     }
 
@@ -198,7 +214,7 @@ final class AgentRunSession {
         touch(now);
     }
 
-    synchronized void acceptModelResponse(AgentModelResponse response, Instant now) {
+    synchronized void acceptModelResponse(String callId, AgentModelResponse response, Instant now) {
         if (response == null) {
             throw new IllegalArgumentException("response must not be null");
         }
@@ -219,6 +235,14 @@ final class AgentRunSession {
         pendingToolIndex = 0;
         status = AgentRunStatus.RUNNING;
         touch(now);
+        emit(AgentEventType.MODEL_CALL_COMPLETED, now, turn.turnNumber(), callId, spec.modelId(), attributes(
+                "attempt", turn.attempts(),
+                "inputTokens", usage.inputTokens(),
+                "outputTokens", usage.outputTokens(),
+                "finishReason", response.finishReason()));
+        emit(AgentEventType.TURN_COMPLETED, now, turn.turnNumber(), null, spec.modelId(), Map.of(
+                "status", AgentTurnStatus.SUCCEEDED.name(),
+                "attempts", turn.attempts()));
     }
 
     synchronized AgentModelResponse currentResponse() {
@@ -252,7 +276,32 @@ final class AgentRunSession {
                 now,
                 AgentUsage.NONE,
                 message));
+        emit(AgentEventType.TURN_COMPLETED, now, turn.turnNumber(), null, spec.modelId(), attributes(
+                "status", AgentTurnStatus.FAILED.name(),
+                "attempts", turn.attempts(),
+                "failureCode", code,
+                "failureMessage", message));
         fail(code, message, now);
+    }
+
+    synchronized void modelCallSubmitted(String callId, Instant now) {
+        AgentTurn turn = currentTurn();
+        emit(AgentEventType.MODEL_CALL_SUBMITTED, now, turn.turnNumber(), callId, spec.modelId(), Map.of(
+                "attempt", turn.attempts()));
+    }
+
+    synchronized void modelCallFailed(String callId, Throwable failure, Instant now) {
+        AgentTurn turn = currentTurn();
+        emit(AgentEventType.MODEL_CALL_FAILED, now, turn.turnNumber(), callId, spec.modelId(), attributes(
+                "attempt", turn.attempts(),
+                "failureMessage", failureMessage(failure)));
+    }
+
+    synchronized void modelRetryScheduled(Duration delay, Instant now) {
+        AgentTurn turn = currentTurn();
+        emit(AgentEventType.MODEL_RETRY_SCHEDULED, now, turn.turnNumber(), null, spec.modelId(), Map.of(
+                "attempt", turn.attempts(),
+                "delayMillis", delay.toMillis()));
     }
 
     synchronized void beginToolBatch(Instant now) {
@@ -283,6 +332,11 @@ final class AgentRunSession {
         toolCalls++;
         status = AgentRunStatus.WAITING_TOOL;
         touch(now);
+        ToolCall call = currentToolCall();
+        if (call != null) {
+            emit(AgentEventType.TOOL_CALL_STARTED, now, currentTurn().turnNumber(), call.callId(), call.toolName(),
+                    Map.of("toolCallNumber", toolCalls));
+        }
         return true;
     }
 
@@ -294,8 +348,9 @@ final class AgentRunSession {
                 mergedToolMetadata());
     }
 
-    synchronized void recordToolResult(ToolResult result, Instant now) {
+    synchronized void recordToolResult(ToolResult result, String executionId, Instant now) {
         transcriptStore.append(thread.threadId(), AgentMessage.tool(result, now));
+        emitToolResult(result, executionId, now);
         pendingToolIndex++;
         if (!status.isTerminal()) {
             status = AgentRunStatus.RUNNING;
@@ -349,6 +404,10 @@ final class AgentRunSession {
                         now,
                         AgentUsage.NONE,
                         reason));
+                emit(AgentEventType.TURN_COMPLETED, now, turn.turnNumber(), null, spec.modelId(), attributes(
+                        "status", AgentTurnStatus.CANCELLED.name(),
+                        "attempts", turn.attempts(),
+                        "failureMessage", reason));
             }
         }
         failureCode = "CANCELLED";
@@ -403,14 +462,15 @@ final class AgentRunSession {
         closePendingToolCalls(pendingToolCode, pendingToolMessage, now);
         endedAt = now;
         touch(now);
+        emitRunTerminal(now);
     }
 
     private void closePendingToolCalls(String code, String message, Instant now) {
         while (pendingToolIndex < pendingToolCalls.size()) {
             ToolCall call = pendingToolCalls.get(pendingToolIndex++);
-            transcriptStore.append(
-                    thread.threadId(),
-                    AgentMessage.tool(ToolResult.cancelled(call.callId(), call.toolName(), code, message), now));
+            ToolResult result = ToolResult.cancelled(call.callId(), call.toolName(), code, message);
+            transcriptStore.append(thread.threadId(), AgentMessage.tool(result, now));
+            emitToolResult(result, null, now);
         }
         pendingToolCalls = List.of();
         pendingToolIndex = 0;
@@ -418,6 +478,76 @@ final class AgentRunSession {
 
     private void touch(Instant now) {
         updatedAt = now;
+    }
+
+    private void emitToolResult(ToolResult result, String executionId, Instant now) {
+        emit(AgentEventType.TOOL_CALL_COMPLETED, now, currentTurn().turnNumber(), result.callId(), result.toolName(),
+                attributes(
+                        "status", result.status().name(),
+                        "errorCode", result.errorCode(),
+                        "executionId", executionId));
+    }
+
+    private void emitRunTerminal(Instant now) {
+        AgentEventType type = switch (status) {
+            case COMPLETED -> AgentEventType.RUN_COMPLETED;
+            case INTERRUPTED -> AgentEventType.RUN_INTERRUPTED;
+            case FAILED -> AgentEventType.RUN_FAILED;
+            case CANCELLED -> AgentEventType.RUN_CANCELLED;
+            case BUDGET_EXHAUSTED -> AgentEventType.RUN_BUDGET_EXHAUSTED;
+            default -> throw new IllegalStateException("non-terminal AgentRun status: " + status);
+        };
+        emit(type, now, eventTurnNumber(), null, null, attributes(
+                "status", status.name(),
+                "turns", turns.size(),
+                "toolCalls", toolCalls,
+                "inputTokens", inputTokens,
+                "outputTokens", outputTokens,
+                "failureCode", failureCode,
+                "failureMessage", failureMessage,
+                "budgetViolation", budgetViolation == null ? null : budgetViolation.name()));
+    }
+
+    private int eventTurnNumber() {
+        return turns.isEmpty() ? 0 : turns.get(turns.size() - 1).turnNumber();
+    }
+
+    private void emit(
+            AgentEventType type,
+            Instant now,
+            int turnNumber,
+            String operationId,
+            String operationName,
+            Map<String, Object> attributes
+    ) {
+        AgentEvent event = new AgentEvent(
+                ++eventSequence,
+                type,
+                runId,
+                recipeId,
+                spec.agentId(),
+                thread.threadId(),
+                now,
+                turnNumber,
+                operationId,
+                operationName,
+                attributes);
+        try {
+            eventSink.publish(event);
+        } catch (RuntimeException ignored) {
+            // Observation must never alter AgentRun behavior.
+        }
+    }
+
+    private static Map<String, Object> attributes(Object... keyValues) {
+        LinkedHashMap<String, Object> selected = new LinkedHashMap<>();
+        for (int i = 0; i < keyValues.length; i += 2) {
+            Object value = keyValues[i + 1];
+            if (value != null) {
+                selected.put((String) keyValues[i], value);
+            }
+        }
+        return Map.copyOf(selected);
     }
 
     private Map<String, Object> mergedToolMetadata() {

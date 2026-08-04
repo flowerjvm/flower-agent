@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.flowerjvm</groupId>
+        <artifactId>flower-agent-parent</artifactId>
+        <version>0.2.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>flower-agent-recipes</artifactId>
+    <packaging>jar</packaging>
+
+    <name>flower-agent Recipes</name>
+    <description>Reusable Flower-native Agent loop recipes, beginning with ReAct.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.flowerjvm</groupId>
+            <artifactId>flower-agent-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.flowerjvm</groupId>
+            <artifactId>flower-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.github.flowerjvm</groupId>
+            <artifactId>flower-testkit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>io.github.flowerjvm</groupId>
+                <artifactId>flower-check-maven-plugin</artifactId>
+                <version>${flower.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

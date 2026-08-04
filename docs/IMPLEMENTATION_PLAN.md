@@ -38,6 +38,53 @@ the exact OpenAI-compatible request bodies. Focused tests cover generated call
 ids for permissive local providers, HTTP retryability, reserved body fields,
 strict transcript rejection, and cancellation.
 
+## Recipe track R0: module boundary and ReAct DSL
+
+Status: completed in the current source tree for the next minor release.
+
+- keep provider-neutral contracts in `flower-agent-core` with no Flower runtime
+  dependency;
+- move the existing ReAct Flow and its deterministic tests to
+  `flower-agent-recipes`;
+- provide `AgentFlows.react(spec)` and `AgentRecipe` as a small construction
+  DSL over the ordinary Flow;
+- preserve direct `AgentRunFlowFactory` access for hosts that need lower-level
+  construction;
+- add payload-light, sequenced Agent lifecycle events and a non-blocking sink;
+- prove event ordering and prove that observation failure cannot change run
+  behavior.
+
+Exit condition: the Recipe-built run passes the same protocol, budget, timeout,
+retry, interruption, and cancellation tests as the original Flow, while core
+compiles without `flower-core`.
+
+The next reusable loop is added to `flower-agent-recipes`, not to another Maven
+module. It should be accepted only after at least two concrete host workflows
+need meaningfully different control flow that cannot be expressed by changing
+the prompt, Tool Registry, or existing policies. Candidate shapes include
+evaluator/optimizer and planner/executor, but neither is committed yet.
+
+See [Agent Recipe Development](RECIPES.md).
+
+Before releasing `0.2.0`, update `flower-agent-samples` to depend on
+`flower-agent-recipes`, migrate its direct factory wiring to the Recipe DSL,
+run the live-compatible smoke test, and publish all three artifacts together.
+
+## Observation track O1: Studio-ready execution read model
+
+Add monitoring in layers without coupling UI or storage to execution:
+
+- generic Flower Flow definition snapshots and Step transition events;
+- an optional Agent event store and projection API;
+- run list, run detail, timeline, Tool-call, usage, error, and interrupt views;
+- explicit redaction and opt-in payload capture;
+- a separate Studio application that renders Steps and transitions while
+  highlighting the actual execution route.
+
+Exit condition: one built-in Recipe and one custom host Flow can be displayed
+from the same Flower execution model, with Agent detail overlaid only where it
+exists.
+
 ## Phase 2: durable run and resume
 
 Add `flower-agent-persistence-jdbc` and, if the idle-wait scale requires it,

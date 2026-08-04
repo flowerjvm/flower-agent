@@ -22,9 +22,10 @@ local vLLM / NIM / Ollama API -----+--> AgentModelGateway
                                     application AgentTools
 ```
 
-The repository is currently an early implementation. It contains the agent
-contracts, a transient Flower Flow, and an OpenAI-compatible model adapter. It
-does not yet contain durable persistence or Spring Boot auto-configuration.
+The repository is currently an early implementation. It contains
+provider-neutral Agent contracts, a built-in transient ReAct recipe, lifecycle
+observation events, and an OpenAI-compatible model adapter. It does not yet
+contain durable persistence, resume, or Spring Boot auto-configuration.
 
 ## What it is
 
@@ -40,8 +41,8 @@ user request
     -> final answer
 ```
 
-`flower-agent` owns that loop and its Agent-specific state. Flower still owns
-Flow and Step execution.
+The built-in ReAct recipe owns that loop and its Agent-specific state. Flower
+still owns Flow and Step execution.
 
 Use it when:
 
@@ -79,7 +80,8 @@ Typical composition:
 | --- | --- |
 | `flower-core` | Executes the Agent Flow and its Steps. |
 | `AgentModelGateway` adapter | Calls the selected cloud or local model API. |
-| `flower-agent` | Runs model turns, tool calls, transcript, budgets, and completion. |
+| `flower-agent-core` | Defines provider-neutral Agent state and ports. |
+| `flower-agent-recipes` | Creates reusable Agent loops as ordinary Flower Flows. |
 | Host application | Supplies prompts, AgentTools, domain services, and RAG. |
 | `flower-action-runtime` | Optionally governs mutating tools with policy, approval, idempotency, retry, and audit. |
 | `flower-ai-harness` | Optionally wraps a completed AgentRun for final structured-output validation, refinement, or whole-task fallback. |
@@ -89,17 +91,24 @@ directly. A refund or equipment-stop tool should adapt the model's ToolCall to
 an ActionProposal and delegate the actual governed change to
 `flower-action-runtime`.
 
-The project currently contains two deployable modules:
+The source tree currently contains four modules:
 
 | Artifact | Purpose |
 | --- | --- |
-| `flower-agent-core` | Agent contracts plus a transient Flower Flow implementation. |
+| `flower-agent-core` | Agent run, model, tool, transcript, budget, policy, and observation contracts. It has no Flower runtime dependency. |
+| `flower-agent-recipes` | Reusable Flower-native loop implementations and their construction DSL. It currently contains ReAct. |
+| `flower-agent-observability` | Payload-light adapter from Agent lifecycle events to `FlowerObservationEvent`. |
 | `flower-agent-model-openai-compatible` | Async `/chat/completions` gateway with complete Agent message and tool-call mapping. |
 
 Official provider SDK, MCP, JDBC, Spring Boot, reusable tool, public testkit,
 and sample modules are deferred until a concrete integration requires them.
 
-## Install from Maven Central
+The Maven Central `0.1.0` release predates this source split: its ReAct Flow is
+still packaged in `flower-agent-core`. The next minor release will publish
+`flower-agent-recipes` separately. The current-source API shown below uses the
+new module boundary and the reactor version is `0.2.0-SNAPSHOT`.
+
+## Install released 0.1.0 from Maven Central
 
 Flower Agent requires Java 21. Add the core and the model adapter needed by the
 host application:
@@ -124,6 +133,22 @@ dependencies {
 </dependency>
 ```
 
+There is no `flower-agent-recipes:0.1.0` artifact. Consumers should remain on
+the released layout until `0.2.0` is published, then add the Recipes artifact
+and migrate construction to `AgentFlows.react(...)`.
+
+The `0.2.0` application dependency shape will be:
+
+```kotlin
+dependencies {
+    implementation("io.github.flowerjvm:flower-agent-recipes:0.2.0")
+    implementation("io.github.flowerjvm:flower-agent-observability:0.2.0")
+    implementation("io.github.flowerjvm:flower-agent-model-openai-compatible:0.2.0")
+}
+```
+
+Both artifacts bring in the provider-neutral core transitively.
+
 ## Bring your own tools
 
 The core is capability-less by default. It does not ship with business tools.
@@ -142,10 +167,10 @@ do. Registration only exposes a capability to the model. It does not grant
 business authorization. A mutating tool must delegate to a governed boundary
 such as `flower-action-runtime`.
 
-## Usage shape
+## ReAct recipe
 
-At the current core level, a host supplies a model gateway, a tool registry,
-and a transcript store, then creates a Flow for one user message:
+A host supplies a model gateway, Tool Registry, and Transcript Store to the
+built-in ReAct recipe, then creates a Flow for one user message:
 
 ```java
 AgentModelGateway modelGateway = new OpenAiCompatibleAgentModelGateway(
@@ -165,14 +190,13 @@ AgentSpec agent = AgentSpec.of(
         "Investigate equipment incidents and explain each conclusion."
 );
 
-AgentRunFlowFactory factory = new AgentRunFlowFactory(
-        modelGateway,
-        tools,
-        new InMemoryTranscriptStore()
-);
+AgentRecipe recipe = AgentFlows.react(agent)
+        .modelGateway(modelGateway)
+        .tools(tools)
+        .transcripts(new InMemoryTranscriptStore())
+        .build();
 
-AgentRunFlow run = factory.createFlow(
-        agent,
+AgentRunFlow run = recipe.createRun(
         AgentThread.create(),
         AgentMessage.user("Investigate the latest ARMG214 incident.")
 );
@@ -180,9 +204,61 @@ AgentRunFlow run = factory.createFlow(
 // Submit run.flow() through the host's Flower Engine/Worker wiring.
 ```
 
+`AgentFlows` is not an executor. It only constructs an ordinary Flower Flow.
 The host can observe `run.run()` for status and counters, inspect
 `run.transcript()` for the conversation and tool protocol, or call
 `run.cancel(reason)`.
+
+The Recipe boundary is intentionally present while ReAct is the only recipe.
+When a second reusable loop such as evaluator/optimizer or planner/executor is
+proven by real applications, it belongs in `flower-agent-recipes` beside
+ReAct. Domain prompts, Tool bundles, and one-off business workflows remain in
+the host application. See [Agent Recipe Development](docs/RECIPES.md).
+
+## Observation and future Studio
+
+Recipes can publish payload-light lifecycle events without coupling execution
+to an observability backend:
+
+```java
+ConcurrentLinkedQueue<AgentEvent> events = new ConcurrentLinkedQueue<>();
+
+AgentRecipe recipe = AgentFlows.react(agent)
+        .modelGateway(modelGateway)
+        .tools(tools)
+        .transcripts(transcriptStore)
+        .events(events::add)
+        .build();
+```
+
+An event sink must return immediately and enqueue persistence or network work
+elsewhere. Events identify Recipes, runs, turns, model calls, Tool calls,
+outcomes, and per-run sequence, but omit prompt and Tool payloads by default.
+
+A future Studio can draw ordinary Flower Steps and transitions, then overlay
+these Agent events as the actual execution path. This does not require public
+Node or Edge runtime concepts. Custom Agent workflows are still authored with
+Flower `Flow`, `Step`, and `StepResult`; reusable loop shapes become Recipes.
+
+`flower-agent-observability` maps these native events into the common Flower
+observation stream:
+
+```java
+AgentEventSink agentEvents = new AgentObservationSinkAdapter(
+        flowerObservationSink,
+        event -> new AgentObservationCorrelation(outerTraceId, parentRunId));
+
+AgentRecipe recipe = AgentFlows.react(agent)
+        .modelGateway(modelGateway)
+        .tools(tools)
+        .transcripts(transcriptStore)
+        .events(agentEvents)
+        .build();
+```
+
+The adapter preserves run, turn, model-call, Tool-call, usage, retry, and
+terminal metadata while excluding prompt, message, failure-text, and Tool
+payload bodies by default.
 
 `flower-agent-model-openai-compatible` works with compatible cloud endpoints,
 proxies, and local servers such as vLLM, NIM, or Ollama's OpenAI-compatible

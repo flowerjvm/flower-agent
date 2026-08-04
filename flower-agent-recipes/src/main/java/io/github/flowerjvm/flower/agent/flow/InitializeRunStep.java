@@ -5,6 +5,8 @@ import io.github.flowerjvm.flower.core.step.Step;
 import io.github.flowerjvm.flower.core.step.StepContext;
 import io.github.flowerjvm.flower.core.step.StepResult;
 
+import java.time.Instant;
+
 /**
  * Applies the initial user message only after the Flow actually starts.
  */
@@ -18,11 +20,11 @@ final class InitializeRunStep extends Step {
 
     @Override
     protected StepResult onTick(StepContext ctx) {
-        AgentMessage initialMessage = session.takeInitialMessage();
+        Instant now = Instant.ofEpochMilli(ctx.clock().currentTimeMillis());
+        AgentMessage initialMessage = session.takeInitialMessage(now);
         if (initialMessage != null) {
             session.transcriptStore().append(session.thread().threadId(), initialMessage);
         }
         return StepResult.done();
     }
 }
-

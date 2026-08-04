@@ -104,7 +104,7 @@ final class ExecuteToolsStep extends Step {
                     activeCall.callId(),
                     activeCall.toolName(),
                     "UNKNOWN_TOOL",
-                    "tool is not registered: " + activeCall.toolName()));
+                    "tool is not registered: " + activeCall.toolName()), null);
         }
         try {
             execution = tool.start(activeCall, session.toolContext());
@@ -133,23 +133,24 @@ final class ExecuteToolsStep extends Step {
         } catch (Throwable failure) {
             return recordFailure(ctx, failure);
         }
-        return recordResult(ctx, result);
+        return recordResult(ctx, result, executionId());
     }
 
     private StepResult recordFailure(StepContext ctx, Throwable failure) {
         Throwable actual = failure == null ? new IllegalStateException("tool execution failed") : failure;
         String message = actual.getMessage() == null ? actual.getClass().getSimpleName() : actual.getMessage();
+        String failedExecutionId = executionId();
         cancelExecution();
         return recordResult(ctx, ToolResult.failed(
                 activeCall.callId(),
                 activeCall.toolName(),
                 "TOOL_EXECUTION_FAILED",
-                message));
+                message), failedExecutionId);
     }
 
-    private StepResult recordResult(StepContext ctx, ToolResult result) {
+    private StepResult recordResult(StepContext ctx, ToolResult result, String executionId) {
         completedExecution = true;
-        session.recordToolResult(result, now(ctx));
+        session.recordToolResult(result, executionId, now(ctx));
         if (result.status() == ToolResultStatus.INTERRUPTED) {
             session.interrupt(
                     result.content(),
@@ -179,6 +180,17 @@ final class ExecuteToolsStep extends Step {
             // Cancellation is best-effort; the failure is still recorded as a ToolResult.
         } finally {
             execution = null;
+        }
+    }
+
+    private String executionId() {
+        if (execution == null) {
+            return null;
+        }
+        try {
+            return execution.executionId();
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 

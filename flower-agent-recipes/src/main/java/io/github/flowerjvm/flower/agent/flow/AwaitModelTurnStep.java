@@ -54,7 +54,9 @@ final class AwaitModelTurnStep extends Step {
                 if (call == null) {
                     return handleFailure(ctx, new IllegalStateException("model gateway returned null call"));
                 }
-                session.markWaitingModel(now(ctx));
+                Instant now = now(ctx);
+                session.modelCallSubmitted(call.callId(), now);
+                session.markWaitingModel(now);
                 return StepResult.stay();
             } catch (Throwable failure) {
                 return handleFailure(ctx, failure);
@@ -108,13 +110,15 @@ final class AwaitModelTurnStep extends Step {
         } catch (Throwable failure) {
             return handleFailure(ctx, failure);
         }
-        session.acceptModelResponse(response, now(ctx));
+        session.acceptModelResponse(call.callId(), response, now(ctx));
         completed = true;
         return StepResult.done();
     }
 
     private StepResult handleFailure(StepContext ctx, Throwable failure) {
         Throwable actual = failure == null ? new IllegalStateException("model call failed") : failure;
+        String failedCallId = callId();
+        session.modelCallFailed(failedCallId, actual, now(ctx));
         cancelCall();
         if (!session.applyUsageBudget(now(ctx))) {
             completed = true;
@@ -134,6 +138,7 @@ final class AwaitModelTurnStep extends Step {
 
         if (retryDecision.shouldRetry()) {
             session.prepareModelRetry(now(ctx));
+            session.modelRetryScheduled(retryDecision.delay(), now(ctx));
             if (retryDecision.delay().isZero()) {
                 ctx.startTimeout(session.spec().modelTimeout().toMillis());
             } else {
@@ -157,6 +162,17 @@ final class AwaitModelTurnStep extends Step {
             // Cancellation is best-effort; the run still takes its explicit failure path.
         } finally {
             call = null;
+        }
+    }
+
+    private String callId() {
+        if (call == null) {
+            return null;
+        }
+        try {
+            return call.callId();
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 

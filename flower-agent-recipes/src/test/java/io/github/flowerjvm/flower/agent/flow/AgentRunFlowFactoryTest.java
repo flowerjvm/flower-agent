@@ -15,6 +15,11 @@ import io.github.flowerjvm.flower.agent.model.AgentUsage;
 import io.github.flowerjvm.flower.agent.model.ToolCall;
 import io.github.flowerjvm.flower.agent.model.ToolDefinition;
 import io.github.flowerjvm.flower.agent.model.ToolResult;
+import io.github.flowerjvm.flower.agent.observation.AgentEvent;
+import io.github.flowerjvm.flower.agent.observation.AgentEventSink;
+import io.github.flowerjvm.flower.agent.observation.AgentEventType;
+import io.github.flowerjvm.flower.agent.recipe.AgentFlows;
+import io.github.flowerjvm.flower.agent.recipe.AgentRecipe;
 import io.github.flowerjvm.flower.agent.run.AgentRunStatus;
 import io.github.flowerjvm.flower.agent.run.AgentThread;
 import io.github.flowerjvm.flower.agent.tool.AgentTool;
@@ -93,6 +98,102 @@ class AgentRunFlowFactoryTest {
                         AgentRole.ASSISTANT);
         assertThat(runFlow.transcript()).extracting(AgentMessage::createdAt)
                 .containsOnly(TEST_INSTANT);
+    }
+
+    @Test
+    void reactRecipeBuildsAnOrdinaryFlowerFlow() {
+        InMemoryTranscriptStore transcripts = new InMemoryTranscriptStore();
+        SequenceGateway gateway = new SequenceGateway(
+                readyModel(response("Recipe complete.", List.of(), AgentUsage.NONE)));
+        AgentRecipe recipe = AgentFlows.react(AgentSpec.of("recipe-agent", "local:model", ""))
+                .modelGateway(gateway)
+                .transcripts(transcripts)
+                .clock(TEST_CLOCK)
+                .build();
+
+        AgentRunFlow runFlow = recipe.createRun(thread("thread-recipe"), user("Run the recipe."));
+
+        try (FlowTestHarness harness = FlowTestHarness.create()) {
+            harness.submit(runFlow.flow()).ticks(10);
+            harness.assertFlow(AgentRunFlowFactory.FLOW_TYPE, runFlow.run().runId()).isFinished();
+        }
+
+        assertThat(recipe.recipeId()).isEqualTo("react");
+        assertThat(runFlow.run().status()).isEqualTo(AgentRunStatus.COMPLETED);
+        assertThat(runFlow.run().finalMessage().content()).isEqualTo("Recipe complete.");
+    }
+
+    @Test
+    void observationEventsDescribeTheActualModelToolLoopInSequence() {
+        ToolCall lookupCall = new ToolCall("tool-observed", "customer.lookup", Map.of("customerId", "C-8"));
+        SequenceGateway gateway = new SequenceGateway(
+                readyModel(response("", List.of(lookupCall), new AgentUsage(8, 2))),
+                readyModel(response("Observed completion.", List.of(), new AgentUsage(9, 3))));
+        RecordingTool tool = tool(
+                "customer.lookup",
+                readyTool(ToolResult.succeeded(lookupCall.callId(), lookupCall.toolName(), "{\"active\":true}")));
+        List<AgentEvent> events = new ArrayList<>();
+        AgentRunFlow runFlow = factory(gateway, registry(tool), new InMemoryTranscriptStore(), events::add)
+                .createFlow(
+                        AgentSpec.of("observed-agent", "local:model", ""),
+                        thread("thread-observed"),
+                        user("Observe this run."));
+
+        try (FlowTestHarness harness = FlowTestHarness.create()) {
+            harness.submit(runFlow.flow()).ticks(24);
+        }
+
+        assertThat(events).extracting(AgentEvent::type).containsExactly(
+                AgentEventType.RUN_STARTED,
+                AgentEventType.TURN_STARTED,
+                AgentEventType.MODEL_CALL_SUBMITTED,
+                AgentEventType.MODEL_CALL_COMPLETED,
+                AgentEventType.TURN_COMPLETED,
+                AgentEventType.TOOL_CALL_STARTED,
+                AgentEventType.TOOL_CALL_COMPLETED,
+                AgentEventType.TURN_STARTED,
+                AgentEventType.MODEL_CALL_SUBMITTED,
+                AgentEventType.MODEL_CALL_COMPLETED,
+                AgentEventType.TURN_COMPLETED,
+                AgentEventType.RUN_COMPLETED);
+        assertThat(events).extracting(AgentEvent::sequence)
+                .containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L);
+        assertThat(events).extracting(AgentEvent::runId).containsOnly(runFlow.run().runId());
+        assertThat(events).extracting(AgentEvent::recipeId).containsOnly("react");
+        assertThat(events).extracting(AgentEvent::threadId).containsOnly("thread-observed");
+        assertThat(events.get(5))
+                .returns(lookupCall.callId(), AgentEvent::operationId)
+                .returns(lookupCall.toolName(), AgentEvent::operationName);
+        assertThat(events.get(6))
+                .returns(lookupCall.callId(), AgentEvent::operationId)
+                .returns(lookupCall.toolName(), AgentEvent::operationName)
+                .satisfies(event -> assertThat(event.attributes())
+                        .containsEntry("executionId", "fake-tool-execution"));
+        assertThat(events).allSatisfy(event -> assertThat(event.attributes())
+                .doesNotContainKeys("prompt", "messages", "input", "output"));
+    }
+
+    @Test
+    void observationSinkFailureNeverChangesRunBehavior() {
+        AgentEventSink brokenSink = event -> {
+            throw new IllegalStateException("observation storage unavailable");
+        };
+        AgentRunFlow runFlow = factory(
+                new SequenceGateway(readyModel(response("Still complete.", List.of(), AgentUsage.NONE))),
+                NO_TOOLS,
+                new InMemoryTranscriptStore(),
+                brokenSink)
+                .createFlow(
+                        AgentSpec.of("sink-isolation-agent", "local:model", ""),
+                        thread("thread-sink-isolation"),
+                        user("Complete despite the sink."));
+
+        try (FlowTestHarness harness = FlowTestHarness.create()) {
+            harness.submit(runFlow.flow()).ticks(10);
+        }
+
+        assertThat(runFlow.run().status()).isEqualTo(AgentRunStatus.COMPLETED);
+        assertThat(runFlow.run().finalMessage().content()).isEqualTo("Still complete.");
     }
 
     @Test
@@ -400,6 +501,15 @@ class AgentRunFlowFactoryTest {
         return new AgentRunFlowFactory(gateway, registry, transcripts, TEST_CLOCK);
     }
 
+    private static AgentRunFlowFactory factory(
+            AgentModelGateway gateway,
+            ToolRegistry registry,
+            InMemoryTranscriptStore transcripts,
+            AgentEventSink eventSink
+    ) {
+        return new AgentRunFlowFactory(gateway, registry, transcripts, TEST_CLOCK, eventSink);
+    }
+
     private static AgentSpec spec(String agentId, AgentBudget budget) {
         return spec(
                 agentId,
@@ -625,4 +735,3 @@ class AgentRunFlowFactoryTest {
         }
     }
 }
-

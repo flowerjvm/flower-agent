@@ -4,6 +4,7 @@ import io.github.flowerjvm.flower.agent.AgentSpec;
 import io.github.flowerjvm.flower.agent.gateway.AgentModelGateway;
 import io.github.flowerjvm.flower.agent.model.AgentMessage;
 import io.github.flowerjvm.flower.agent.model.AgentRole;
+import io.github.flowerjvm.flower.agent.observation.AgentEventSink;
 import io.github.flowerjvm.flower.agent.run.AgentThread;
 import io.github.flowerjvm.flower.agent.tool.ToolRegistry;
 import io.github.flowerjvm.flower.agent.transcript.TranscriptStore;
@@ -15,10 +16,14 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Builds the transient Flower Flow for one AgentRun.
+ * Low-level factory for one transient ReAct AgentRun Flow.
+ *
+ * <p>Most hosts should configure it through
+ * {@link io.github.flowerjvm.flower.agent.recipe.AgentFlows#react(AgentSpec)}.
  */
 public final class AgentRunFlowFactory {
 
+    public static final String RECIPE_ID = "react";
     public static final String FLOW_TYPE = "flower-agent-run";
     public static final String INITIALIZE_RUN_STEP = "initialize-run";
     public static final String PREPARE_CONTEXT_STEP = "prepare-context";
@@ -31,6 +36,21 @@ public final class AgentRunFlowFactory {
     private final ToolRegistry toolRegistry;
     private final TranscriptStore transcriptStore;
     private final Clock clock;
+    private final AgentEventSink eventSink;
+
+    public AgentRunFlowFactory(
+            AgentModelGateway gateway,
+            ToolRegistry toolRegistry,
+            TranscriptStore transcriptStore,
+            Clock clock,
+            AgentEventSink eventSink
+    ) {
+        this.gateway = Objects.requireNonNull(gateway, "gateway must not be null");
+        this.toolRegistry = toolRegistry == null ? ToolRegistry.empty() : toolRegistry;
+        this.transcriptStore = Objects.requireNonNull(transcriptStore, "transcriptStore must not be null");
+        this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.eventSink = eventSink == null ? AgentEventSink.noop() : eventSink;
+    }
 
     public AgentRunFlowFactory(
             AgentModelGateway gateway,
@@ -38,10 +58,7 @@ public final class AgentRunFlowFactory {
             TranscriptStore transcriptStore,
             Clock clock
     ) {
-        this.gateway = Objects.requireNonNull(gateway, "gateway must not be null");
-        this.toolRegistry = toolRegistry == null ? ToolRegistry.empty() : toolRegistry;
-        this.transcriptStore = Objects.requireNonNull(transcriptStore, "transcriptStore must not be null");
-        this.clock = clock == null ? Clock.systemUTC() : clock;
+        this(gateway, toolRegistry, transcriptStore, clock, AgentEventSink.noop());
     }
 
     public AgentRunFlowFactory(
@@ -49,7 +66,7 @@ public final class AgentRunFlowFactory {
             ToolRegistry toolRegistry,
             TranscriptStore transcriptStore
     ) {
-        this(gateway, toolRegistry, transcriptStore, Clock.systemUTC());
+        this(gateway, toolRegistry, transcriptStore, Clock.systemUTC(), AgentEventSink.noop());
     }
 
     public AgentRunFlow createFlow(AgentSpec spec, AgentThread thread, AgentMessage initialMessage) {
@@ -67,7 +84,9 @@ public final class AgentRunFlowFactory {
                 transcriptStore,
                 toolRegistry,
                 initialMessage,
-                startedAt);
+                startedAt,
+                RECIPE_ID,
+                eventSink);
         Flow flow = Flow.builder(FLOW_TYPE, session.runId())
                 .definitionVersion("1")
                 .executionContext(ExecutionContext.builder()
