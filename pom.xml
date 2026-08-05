@@ -6,7 +6,7 @@
 
     <groupId>io.github.flowerjvm</groupId>
     <artifactId>flower-agent-parent</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.2.0</version>
     <packaging>pom</packaging>
 
     <name>flower-agent Parent</name>
@@ -68,7 +68,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.release>21</maven.compiler.release>
 
-        <flower.version>0.1.2-SNAPSHOT</flower.version>
+        <flower.version>0.1.2</flower.version>
         <jackson.version>2.17.2</jackson.version>
         <junit-jupiter.version>5.10.3</junit-jupiter.version>
         <assertj.version>3.26.3</assertj.version>

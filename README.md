@@ -1,5 +1,8 @@
 # flower-agent
 
+[![CI](https://github.com/flowerjvm/flower-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/flowerjvm/flower-agent/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.flowerjvm/flower-agent-core.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.flowerjvm/flower-agent-core/0.2.0)
+
 Small Flower-native agent loop library for Java 21.
 
 `flower-agent` turns a model API into an application agent by repeatedly
@@ -103,51 +106,45 @@ The source tree currently contains four modules:
 Official provider SDK, MCP, JDBC, Spring Boot, reusable tool, public testkit,
 and sample modules are deferred until a concrete integration requires them.
 
-The Maven Central `0.1.0` release predates this source split: its ReAct Flow is
-still packaged in `flower-agent-core`. The next minor release will publish
-`flower-agent-recipes` separately. The current-source API shown below uses the
-new module boundary and the reactor version is `0.2.0-SNAPSHOT`.
+The `0.2.0` release separates reusable ReAct construction into
+`flower-agent-recipes` and adds the optional common observation adapter in
+`flower-agent-observability`. It builds against Flower `0.1.2`.
 
-## Install released 0.1.0 from Maven Central
+## Install 0.2.0 From Maven Central
 
-Flower Agent requires Java 21. Add the core and the model adapter needed by the
-host application:
+Flower Agent requires Java 21. Add the recipe and model adapter needed by the
+host application. Add observability only when the host publishes Agent
+lifecycle facts into Flower's common observation stream:
 
 ```kotlin
 dependencies {
-    implementation("io.github.flowerjvm:flower-agent-core:0.1.0")
-    implementation("io.github.flowerjvm:flower-agent-model-openai-compatible:0.1.0")
+    implementation("io.github.flowerjvm:flower-agent-recipes:0.2.0")
+    implementation("io.github.flowerjvm:flower-agent-model-openai-compatible:0.2.0")
+    implementation("io.github.flowerjvm:flower-agent-observability:0.2.0")
 }
 ```
 
 ```xml
 <dependency>
     <groupId>io.github.flowerjvm</groupId>
-    <artifactId>flower-agent-core</artifactId>
-    <version>0.1.0</version>
+    <artifactId>flower-agent-recipes</artifactId>
+    <version>0.2.0</version>
 </dependency>
 <dependency>
     <groupId>io.github.flowerjvm</groupId>
     <artifactId>flower-agent-model-openai-compatible</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
+</dependency>
+<dependency>
+    <groupId>io.github.flowerjvm</groupId>
+    <artifactId>flower-agent-observability</artifactId>
+    <version>0.2.0</version>
 </dependency>
 ```
 
-There is no `flower-agent-recipes:0.1.0` artifact. Consumers should remain on
-the released layout until `0.2.0` is published, then add the Recipes artifact
-and migrate construction to `AgentFlows.react(...)`.
-
-The `0.2.0` application dependency shape will be:
-
-```kotlin
-dependencies {
-    implementation("io.github.flowerjvm:flower-agent-recipes:0.2.0")
-    implementation("io.github.flowerjvm:flower-agent-observability:0.2.0")
-    implementation("io.github.flowerjvm:flower-agent-model-openai-compatible:0.2.0")
-}
-```
-
-Both artifacts bring in the provider-neutral core transitively.
+These modules bring in the provider-neutral core transitively. Existing
+`0.1.0` consumers should move ReAct construction to `AgentFlows.react(...)`
+from `flower-agent-recipes`.
 
 ## Bring your own tools
 
